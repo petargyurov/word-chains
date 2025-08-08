@@ -1,0 +1,201 @@
+<html>
+
+<head>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script type="text/javascript" src="./data/chains.js"></script>
+
+    <style type="text/css">
+        #mynetwork {
+            height: 600px;
+        }
+
+        .loadingBar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="loadingBar">
+        <label id="nodeBarLabel" for="nodeBar">Nodes: </label>
+        <progress id="nodeBar" value="0" max="100">0</progress>
+    </div>
+    <div class="loadingBar">
+        <label id="edgeBarLabel" for="edgeBar">Edges: </label>
+        <progress id="edgeBar" value="0" max="100">0</progress>
+    </div>
+    <div id="wrapper">
+        <button type="button" onclick="saveNetwork()">Save Network</button>
+        <div id="mynetwork"></div>
+    </div>
+
+
+    <script type="text/javascript">
+        function* batchGenerator(array, batchSize) {
+            for (let i = 0; i < array.length; i += batchSize) {
+                yield array.slice(i, i + batchSize);
+            }
+        }
+
+        // NOTE: temporarily reduce the size of the edges and only get the nodes that correspond to the filtered edges
+        const limit = 10000
+        const batchSizeNodes = 500;
+        const batchSizeEdges = 500;
+
+        let edgeData = EDGES;
+        let nodeData = NODES;
+
+        edgeData.sort((a, b) => b.to - a.to);
+        edgeData = edgeData.slice(0, limit);
+
+        const connectedNodeIds = new Set();
+
+        edgeData.forEach(e => {
+            connectedNodeIds.add(e.from);
+            connectedNodeIds.add(e.to);
+        });
+        nodeData = nodeData.filter(n => connectedNodeIds.has(n.id));
+
+        const totalNodes = nodeData.length;
+        const totalEdges = edgeData.length;
+        console.log('>>>', totalNodes, totalEdges)
+
+        const genNodes = batchGenerator(nodeData, batchSizeNodes);
+        const genEdges = batchGenerator(edgeData, batchSizeEdges);
+
+        let nodes0 = genNodes.next().value;
+        let edges0 = genEdges.next().value;
+
+        let nodes = new vis.DataSet(nodes0);
+        let edges = new vis.DataSet(edges0);
+        let container = document.getElementById('mynetwork');
+        let data = { nodes: nodes, edges: edges };
+        let options = {
+            physics: {
+                enabled: true,
+                barnesHut: {
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.05,
+                    springLength: 100,             // longer springs to spread nodes
+                    springConstant: 0.05,          // weaker springs to reduce oscillations
+                    damping: 0.3,                  // more damping to slow motion faster
+                    avoidOverlap: 0,
+                    theta: 0.8                    // lower values => faster, less accurate solving
+                },
+                stabilization: {
+                    enabled: true,
+                    iterations: 10,
+                    updateInterval: 5,
+                    onlyDynamicEdges: false,
+                    fit: true
+                },
+                timestep: 0.8,
+                minVelocity: 0.5,
+                maxVelocity: 10
+            },
+            layout: { improvedLayout: false },
+            nodes: {
+                shape: 'dot',
+                scaling: {
+                    min: 1,
+                    max: 10,
+                    label: {
+                        min: 10,
+                        max: 18,
+                        drawThreshold: 1,
+                        maxVisible: 20
+                    },
+                },
+                color: {
+                    border: '#5b5b5b',
+                    background: '#000',
+                    highlight: {
+                        border: '#000',
+                        background: '#c20000'
+                    },
+                },
+                fixed: true,
+                shadow: false
+            }
+        };
+
+        let network = new vis.Network(container, data, options);
+
+        function stabilizeNetwork() {
+            return new Promise((resolve) => {
+                network.once('stabilized', resolve);
+            });
+        }
+
+        function updateProgressBar(barID, progress) {
+            progress = progress.toFixed(2)
+            console.log("Progress: ", progress)
+            document.getElementById(barID).value = progress
+            document.getElementById(barID).innerHTML = progress
+            document.getElementById(`${barID}Label`).innerHTML = `${barID} ${progress}%`
+        }
+
+        async function addNodeBatches(batches) {
+            let i = 1;
+            for (const batch of batches) {
+                nodes.add(batch);
+                let progress = 100 * (i / totalNodes) * batchSizeNodes;
+                updateProgressBar("nodeBar", progress)
+                await stabilizeNetwork();
+                i++;
+            }
+            console.log('Finished adding nodes')
+        }
+
+        async function addEdgeBatches(batches) {
+            let i = 1;
+            for (const batch of batches) {
+                edges.add(batch);
+                let progress = 100 * (i / totalEdges) * batchSizeEdges;
+                updateProgressBar("edgeBar", progress)
+                await stabilizeNetwork();
+                i++;
+            }
+            console.log('Finished adding edges')
+        }
+
+        // kick things off
+        network.once('stabilized', async () => {
+            await addNodeBatches(genNodes)
+            await addEdgeBatches(genEdges)
+            network.moveTo({ position: { x: 0, y: 0 }, scale: 0.04 }); // zoom out first to improve rendering speed
+            network.setOptions({ nodes: { fixed: false } });
+        });
+
+        function saveNetwork() {
+            console.log('Saving network')
+            const positions = network.getPositions();
+            const exportedNodes = nodes.get().map(n => ({
+                ...n,
+                ...positions[n.id],
+                fixed: { x: false, y: false }
+            }));
+
+            const exportedEdges = edges.get();
+
+            const graph = {
+                nodes: exportedNodes,
+                edges: exportedEdges
+            };
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(graph));
+            const a = document.createElement('a');
+            a.setAttribute("href", dataStr);
+            a.setAttribute("download", 'network.json');
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+    </script>
+</body>
+
+</html>

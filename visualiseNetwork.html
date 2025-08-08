@@ -1,0 +1,53 @@
+<html>
+
+<head>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+</head>
+
+<body>
+    <div id="wrapper">
+        <div id="network"></div>
+    </div>
+
+
+    <script type="text/javascript">
+        fetch('data/smallNetwork.json')
+            .then(res => res.json())
+            .then(data => {
+                const nodes = new vis.DataSet(data.nodes);
+                const edges = new vis.DataSet(data.edges);
+                const container = document.getElementById('network');
+                const networkData = { nodes, edges };
+                const options = {
+                    physics: { enabled: true },
+                    layout: { improvedLayout: true },
+                    nodes: {
+                        shape: 'dot',
+                        scaling: {
+                            min: 5,
+                            max: 30,
+                            label: {
+                                min: 10,
+                                max: 18,
+                                drawThreshold: 1,
+                                maxVisible: 20
+                            },
+                        },
+                        color: {
+                            border: '#5b5b5b',
+                            background: '#000',
+                            highlight: {
+                                border: '#000',
+                                background: '#c20000'
+                            },
+                        },
+                        shadow: false
+                    }
+                };
+                const network = new vis.Network(container, networkData, options);
+            });
+    </script>
+</body>
+
+</html>
